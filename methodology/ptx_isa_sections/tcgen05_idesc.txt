@@ -1,0 +1,123 @@
+9.7.16.4.2 Instruction descriptor
+
+The instruction descriptor describes the shapes, types and other details of all the matrices and the
+matrix-multiplication-and-accumulation operation. It is a 32-bit value in registers and the exact layout
+is dependent on the MMA-Kind:
+
+                     Table 44: Instruction descriptor format for .kind::tf32,
+                     .kind::f16, .kind::f8f6f4 and .kind::i8
+ Bits Size Description                      Values
+      (bits)
+                                            .kind::tf32 .kind::f16 .kind::f8f6f4          .kind::i8
+ 0-1     2     Sparsity selector,      if   0-3
+               Sparsity is enabled
+ 2       1     Sparsity                     Dense = 0
+                                            Sparse = 1
+ 3       1     Saturate   for    integer    0 (NA)                                        No Saturate
+               types                                                                      = 0 Saturate
+                                                                                          =1
+ 4-5     2     dtype (Matrix D type)        F32 = 1      F16 = 0 F32 = 1                  S32 = 2
+ 6       1     Reserved                     0
+ 7-9     3     atype (Matrix A type)        TF32 = 2     F16 = 0    E4M3 = 0 E5M2 = 1     Unsigned 8b
+                                                         BF16 = 1   E2M3 = 3 E3M2 = 4     =0
+                                                                    E2M1 = 5              Signed 8b =
+ 10-     3     btype (Matrix B type)                                                      1
+ 12
+ 13      1     Negate A Matrix              No Negate = 0                                 No Negate =
+                                            Negate = 1                                    0
+ 14      1     Negate B Matrix
+ 15      1     Transpose A Matrix           No Transpose = 0
+                                            Transpose = 1
+ 16      1     Transpose B Matrix
+ 17-     6     N, Dimension of Matrix B     N >> 3
+ 22            (3 LSBs not included)
+ 23      1     Reserved                     0
+ 24-     5     M, Dimension of Matrix       M >> 4
+ 28            A (4 LSBs not included)
+ 29      1     Reserved                     0
+ 30-     2     Maximum shift while          no shift = 0 maximum shift of 8 = 1 maximum shift of 16 = 2
+ 31            attempting B matrix          maximum shift of 32 = 3
+               -reuse in .ws
+
+
+
+
+650                                                                          Chapter 9. Instruction Set
+                                                                                  PTX ISA, Release 9.2
+
+
+
+                    Table 45: Instruction descriptor format for .kind::mxf8f6f4
+ Bits   Size Description                                 Values
+        (bits)
+                                                         .kind::mxf8f6f4
+ 0-1    2     Reserved                                   0
+ 2      1     Sparsity                                   Dense = 0
+                                                         Sparse = 1
+ 3      1     Reserved                                   0
+ 4-5    2     Matrix B Scale Factor Data ID              0-3
+ 6      1     Reserved                                   0
+ 7-9    3     atype (Matrix A type)                      E4M3 = 0 E5M2 = 1 E2M3 = 3 E3M2 = 4
+                                                         E2M1 = 5
+ 10-    3     btype (Matrix B type)
+ 12
+ 13     1     Negate A Matrix                            No Negate = 0
+                                                         Negate = 1
+ 14     1     Negate B Matrix
+ 15     1     Transpose A Matrix                         No Transpose = 0
+                                                         Transpose = 1
+ 16     1     Transpose B Matrix
+ 17-    6     N, Dimension of Matrix B (3 LSBs not in-   N >> 3
+ 22           cluded)
+ 23     1     Scale Matrix Type, for both scale_A /      UE8M0 = 1
+              scale_B
+ 24-    3     Reserved                                   0
+ 26
+ 27-    2     M, Dimension of Matrix A (7 LSBs not in-   M >> 7
+ 28           cluded)
+ 29-    2     Matrix A Scale Factor Data ID              0-3
+ 30
+ 31     1     Reserved                                   0
+
+
+
+
+9.7. Instructions                                                                                 651
+PTX ISA, Release 9.2
+
+
+
+                   Table 46: Instruction descriptor format for .kind::mxf4 and
+                   .kind::mxf4nvf4
+ Bits    Size Description                                       Values
+         (bits)
+                                                                .kind::mxf4        .kind::mxf4nvf4
+ 0-1     2      Reserved                                        0
+ 2       1      Sparsity                                        Dense = 0
+                                                                Sparse = 1
+ 3       1      Reserved                                        0
+ 4-5     2      Matrix B Scale Factor Data ID                   0 or 2
+ 6       1      Reserved                                        0
+ 7-9     3      atype (Matrix A type)                           E2M1 = 1
+ 10-     2      btype (Matrix B type)
+ 11
+ 12      1      Reserved                                        0
+ 13      1      Negate A Matrix                                 No Negate = 0
+                                                                Negate = 1
+ 14      1      Negate B Matrix
+ 15      1      Transpose A Matrix                              No Transpose = 0
+ 16      1      Transpose B Matrix
+ 17-     6      N, Dimension of Matrix B (3 LSBs not in-        N >> 3
+ 22             cluded)
+ 23      1      Scale Matrix Type, for both scale_A / scale_B   UE8M0 = 1          UE4M3 = 0 UE8M0 =
+                                                                                   1
+ 24-     3      Reserved                                        0
+ 26
+ 27-     2      M, Dimension of Matrix A (7 LSBs not in-        M >> 7
+ 28             cluded)
+ 29-     2      Matrix A Scale Factor Data ID                   0 or 2
+ 30
+ 31      1      K Dimension                                     (Dense K=64 / Sparse K=128) = 0
+                                                                (Dense K=96) = 1
+
+

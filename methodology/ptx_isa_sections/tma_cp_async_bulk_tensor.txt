@@ -1,0 +1,210 @@
+cp.async.bulk.tensor.dim.dst.src{.load_mode}.completion_mechanism{.level::cache_hint}
+                                   [tensorMap, tensorCoords], [srcMem] {, cache-
+ ,→policy}
+
+
+
+.dst =                  { .global }
+.src =                  { .shared::cta }
+.dim =                  { .1d, .2d, .3d, .4d, .5d }
+.completion_mechanism = { .bulk_group }
+.load_mode =            { .tile, .tile::scatter4, .im2col_no_offs }
+.level::cache_hint =    { .L2::cache_hint }
+
+
+
+Description
+
+cp.async.bulk.tensor is a non-blocking instruction which initiates an asynchronous copy opera-
+tion of tensor data from the location in .src state space to the location in the .dst state space.
+The operand dstMem specifies the location in the .dst state space into which the tensor data has to
+be copied and srcMem specifies the location in the .src state space from which the tensor data has
+to be copied.
+When .dst is specified as .shared::cta, the address dstMem must be in the shared memory of the
+executing CTA within the cluster, otherwise the behavior is undefined.
+When .dst is specified as .shared::cluster, the address dstMem can be in the shared memory of
+any of the CTAs within the current cluster.
+The operand tensorMap is the generic address of the opaque tensor-map object which resides in .
+param space or .const space or .global space. The operand tensorMap specifies the properties
+of the tensor copy operation, as described in Tensor-map. The tensorMap is accessed in tensormap
+proxy. Refer to the CUDA programming guide for creating the tensor-map objects on the host side.
+The dimension of the tensor data is specified by the .dim modifier.
+The vector operand tensorCoords specifies the starting coordinates in the tensor data in the global
+memory from or to which the copy operation has to be performed. The individual tensor coordinates
+in tensorCoords are of type .s32. The format of vector argument tensorCoords is dependent on
+.load_mode specified and is as follows:
+
+
+
+
+9.7. Instructions                                                                                  333
+PTX ISA, Release 9.2
+
+
+
+
+                .load_mode                tensorCoords                Semantics
+                .tile::scatter4           {col_idx, row_idx0,         Fixed length vector
+                                          row_idx1, row_idx2,         of size 5. The five
+                                          row_idx3}                   elements together
+                                                                      specify the start co-
+                                                                      ordinates of the four
+                .tile::gather4
+                                                                      rows.
+
+
+                Rest all                  {d0, .., dn} for n = .dim   Vector of n elements
+                                                                      where n = .dim. The
+                                                                      elements indicate the
+                                                                      offset in each of the
+                                                                      dimension.
+
+The modifier .completion_mechanism specifies the completion mechanism that is supported on the
+instruction variant. The completion mechanisms that are supported for different variants are summa-
+rized in the following table:
+
+
+ .completion-              .dst                    .src                       Completion mechanism
+ mechanism
+                                                                              Needed for com-      optionally can be
+                                                                              pletion of entire    used for the com-
+                                                                              Async operation      pletion of reading
+                                                                                                   of the tensormap
+                                                                                                   object
+ .mbarrier::...            .shared::cta            .global                    mbarrier based       Bulk async-group
+                                                                                                   based
+                           .shared::cluster        .global
+ .bulk_group               .global                 .shared::cta               Bulk  async-group
+                                                                              based
+
+The modifier .mbarrier::complete_tx::bytes specifies that the cp.async.bulk.tensor vari-
+ant uses mbarrier based completion mechanism. Upon the completion of the asynchronous copy op-
+eration, the complete-tx operation, with completeCount argument equal to amount of data copied
+in bytes, will be performed on the mbarrier object specified by the operand mbar. This instruction
+accesses its mbarrier operand using generic-proxy.
+The modifier .cta_group can only be specified with the mbarrier based completion mechanism. The
+modifier .cta_group is used to signal either the odd numbered CTA or the even numbered CTA
+among the CTA-Pair. When .cta_group::1 is specified, the mbarrier object mbar that is specified
+must be in the shared memory of the same CTA as the shared memory destination dstMem. When
+.cta_group::2 is specified, the mbarrier object mbar can be in shared memory of either the same
+CTA as the shared memory destination dstMem or in its peer-CTA. If .cta_group is not specified, then
+it defaults to .cta_group::1.
+The modifier .bulk_group specifies that the cp.async.bulk.tensor variant uses bulk async-group
+based completion mechanism.
+The qualifier .load_mode specifies how the data in the source location is copied into the destination
+location. If .load_mode is not specified, it defaults to .tile.
+In .tile mode, the multi-dimensional layout of the source tensor is preserved at the destination.
+
+
+334                                                                             Chapter 9. Instruction Set
+                                                                                 PTX ISA, Release 9.2
+
+
+In .tile::gather4 mode, four rows in 2-dimnesional source tensor are combined to form a sin-
+gle 2-dimensional destination tensor. In .tile::scatter4 mode, single 2-dimensional source ten-
+sor is divided into four rows in 2-dimensional destination tensor. Details of .tile::scatter4/.
+tile::gather4 modes are described in .tile::scatter4 and .tile::gather4 modes.
+In .im2col and .im2col::* modes, some dimensions of the source tensors are unrolled in a single
+dimensional column at the destination. Details of the im2col and .im2col::* modes are described
+in im2col mode and im2col::w and im2col::w::128 modes respectively. In .im2col and .im2col::*
+modes, the tensor has to be at least 3-dimensional. The vector operand im2colInfo can be specified
+only when .load_mode is .im2col or .im2col::w or .im2col::w::128. The format of the vector
+argument im2colInfo is dependent on the exact im2col mode and is as follows:
+
+
+                Exact im2col mode      im2colInfo argument      Semantics
+                .im2col                { i2cOffW , i2cOffH ,    A vector of im2col
+                                       i2cOffD } for .dim = .   offsets whose vector
+                                       5d                       size is two less than
+                                                                number of dimen-
+                                                                sions .dim.
+                .im2col::w             { wHalo, wOffset }       A vector of 2 argu-
+                                                                ments containing
+                                                                wHalo and wOffset
+                .im2col::w::128                                 arguments.
+                .im2col_no_offs        im2colInfo is not        im2colInfo is not
+                                       applicable.              applicable.
+
+Argument wHalo is a 16bit unsigned integer whose valid set of values differs on the load-mode and is
+as follows: - Im2col::w mode : valid range is [0, 512). - Im2col::w::128 mode : valid range is [0, 32).
+Argument wOffset is a 16bit unsigned integer whose valid range of values is [0, 32).
+The optional qualifier .multicast::cluster allows copying of data from global memory to shared
+memory of multiple CTAs in the cluster. Operand ctaMask specifies the destination CTAs in the cluster
+such that each bit position in the 16-bit ctaMask operand corresponds to the %cluster_ctarank of
+the destination CTA. The source data is multicast to the same offset as dstMem in the shared memory
+of each destination CTA. When .cta_group is specified as:
+  ▶ .cta_group::1 : The mbarrier signal is also multicasted to the same offset as mbar in the
+    shared memory of the destination CTA.
+  ▶ .cta_group::2 : The mbarrier signal is multicasted either to all the odd numbered CTAs or the
+    even numbered CTAs within the corresponding CTA-Pair. For each destination CTA specified in
+    the ctaMask, the mbarrier signal is sent either to the destination CTA or its peer-CTA based on
+    CTAs %cluster_ctarank parity of shared memory where the mbarrier object mbar resides.
+When the optional argument cache-policy is specified, the qualifier .level::cache_hint is re-
+quired. The 64-bit operand cache-policy specifies the cache eviction policy that may be used during
+the memory access.
+cache-policy is a hint to the cache subsystem and may not always be respected. It is treated as a
+performance hint only, and does not change the memory consistency behavior of the program.
+The copy operation in cp.async.bulk.tensor is treated as a weak memory operation and the
+complete-tx operation on the mbarrier has .release semantics at the .cluster scope as described
+in the Memory Consistency Model.
+
+
+
+
+9.7. Instructions                                                                                  335
+PTX ISA, Release 9.2
+
+
+Notes
+
+.multicast::cluster qualifier is optimized for target architecture sm_90a/sm_100f/sm_100a/
+sm_103f/sm_103a/sm_110f/sm_110a and may have substantially reduced performance on other
+targets and hence .multicast::cluster is advised to be used with .target sm_90a/sm_100f/
+sm_100a/sm_103f/sm_103a/sm_110f/sm_110a.
+
+
+PTX ISA Notes
+
+Introduced in PTX ISA version 8.0.
+Support for .shared::cta as destination state space is introduced in PTX ISA version 8.6.
+Support for qualifiers .tile::gather4 and .tile::scatter4 introduced in PTX ISA version 8.6.
+Support for qualifiers .im2col::w and .im2col::w::128 introduced in PTX ISA version 8.6.
+Support for qualifier .cta_group introduced in PTX ISA version 8.6.
+
+
+Target ISA Notes
+
+Requires sm_90 or higher.
+.multicast::cluster qualifier advised to be used with .target sm_90a or sm_100f or sm_100a
+or sm_103f or sm_103a or sm_110f or sm_110a.
+Qualifiers .tile::gather4 and .im2col::w require:
+  ▶ sm_100a when destination state space is .shared::cluster and is supported on sm_100f
+    from PTX ISA version 8.8.
+  ▶ sm_100 or higher when destination state space is .shared::cta.
+Qualifier .tile::scatter4 is supported on following architectures:
+  ▶ sm_100a
+  ▶ sm_101a (Renamed to sm_110a from PTX ISA version 9.0)
+  ▶ And is supported on following family-specific architectures from PTX ISA version 8.8:
+        ▶ sm_100f or higher in the same family
+        ▶ sm_101f or higher in the same family (Renamed to sm_110f from PTX ISA version 9.0)
+  ▶ sm_110f or higher in the same family
+Qualifier .im2col::w::128 is supported on following architectures:
+  ▶ sm_100a
+  ▶ sm_101a (Renamed to sm_110a from PTX ISA version 9.0)
+  ▶ And is supported on following family-specific architectures from PTX ISA version 8.8:
+        ▶ sm_100f or higher in the same family
+        ▶ sm_101f or higher in the same family (Renamed to sm_110f from PTX ISA version 9.0)
+  ▶ sm_110f or higher in the same family
+Qualifier .cta_group is supported on following architectures:
+  ▶ sm_100a
+
+
+336                                                                     Chapter 9. Instruction Set
+                                                                                    PTX ISA, Release 9.2
+
+
+  ▶ tensormap.cp_fenceproxy
+  ▶ clusterlaunchcontrol.try_cancel
+  ▶ clusterlaunchcontrol.query_cancel
+
+

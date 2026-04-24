@@ -1,0 +1,331 @@
+9.7.16.2 Matrix and Data Movement Shape
+
+There are two kinds of shapes involved.
+  1. Shapes in the data movement operations
+  2. Shapes in the MMA operations
+
+
+
+
+628                                                                         Chapter 9. Instruction Set
+                                                                                PTX ISA, Release 9.2
+
+
+
+
+                          Figure 182: Tensor Memory Layout and Addressing
+
+
+9.7.16.2.1 Matrix Shape
+
+The matrix multiply and accumulate operations support a limited set of shapes for the operand matri-
+ces A, B and D. The shapes of all three matrix operands are collectively described by the tuple MxNxK
+where A is MxK matrix, B is a KxN matrix, and D is a MxN matrix.
+Table 41 shows matrix shapes that are supported for the specified types for the tcgen05.mma oper-
+ation.
+
+
+                               Table 41: Various combinations of .kind and shapes
+ Various Combinations                                                  Shapes Supported
+ .kind::*              Has    CTA   Spar-       dtype atype/btype
+                       .ws    Group sity
+ kind::f16             No .   1       Dense     .      .f16            64xNxK         N = {8, 16, 24, …   K=
+                       ws                       f16                    128xNxK        256} steps of 8     16
+                                                .      .f16, .bf16
+                                                f32
+                                      Sparse    .      .f16                                               K=
+                                                f16                                                       32
+                                                .      .f16, .bf16
+                                                f32
+                              2       Dense     .      .f16            128xNxK        N = {16, 32, …      K=
+                                                f16                    256xNxK        256} steps of 16    16
+                                                                                        continues on next page
+
+
+9.7. Instructions                                                                                629
+PTX ISA, Release 9.2
+
+
+
+                                  Table 41 – continued from previous page
+ Various Combinations                                              Shapes Supported
+ .kind::*              Has    CTA   Spar-    dtype atype/btype
+                       .ws    Group sity
+                                             .      .f16, .bf16
+                                             f32
+                                    Sparse   .      .f16                                              K=
+                                             f16                                                      32
+                                             .      .f16, .bf16
+                                             f32
+                       .ws    1     Dense    .      .f16           32xNxK        N = {64, 128, 256}   K=
+                                             f16                   64xNxK                             16
+                                                                   128xNxK
+                                             .      .f16, .bf16
+                                             f32
+                                    Sparse   .      .f16                         N = {64, 128}        K=
+                                             f16                                                      32
+                                             .      .f16, .bf16
+                                             f32
+                              2     Either   .      .f16           Invalid
+                                             f16
+                                             .      .f16, .bf16
+                                             f32
+ .kind::tf32           No .   1     Dense    .      .tf32          64xNxK        N = {8, 16, 24, …    K=8
+                       ws                    f32                   128xNxK       256} steps of 8
+                                    Sparse                                                            K =
+                                                                                                      16
+                              2     Dense                          128xNxK       N = {16, 32, …       K=8
+                                                                   256xNxK       256} steps of 16
+                                    Sparse                                                            K =
+                                                                                                      16
+                       .ws    1     Dense                          32xNxK        N = {64, 128, 256}   K=8
+                                                                   64xNxK
+                                                                   128xNxK
+                                    Sparse                                       N = {64, 128}        K =
+                                                                                                      16
+                              2     Dense                          Invalid
+                                    Sparse
+ .kind::f8f6f4         No .   1     Dense    .      .e4m3,         64xNxK        N = {8, 16, … 256}   K =
+                       ws                    f32    .e5m2,         128xNxK       steps of 8           32
+                                             .      .e2m3,
+                                    Sparse                                                            K =
+                                             f16    .e3m2,
+                                                                                                      64
+                                                    .e2m1
+                              2     Dense                          128xNxK       N = {16, 32, …       K =
+                                                                   256xNxK       256} steps of 16     32
+                                                                                   continues on next page
+
+
+
+630                                                                  Chapter 9. Instruction Set
+                                                                          PTX ISA, Release 9.2
+
+
+
+                               Table 41 – continued from previous page
+ Various Combinations                                           Shapes Supported
+ .kind::*           Has    CTA   Spar-    dtype atype/btype
+                    .ws    Group sity
+                                 Sparse                                                               K =
+                                                                                                      64
+                    .ws    1     Dense                          32xNxK          N = {64, 128, 256}    K =
+                                                                64xNxK                                32
+                                                                128xNxK
+                                 Sparse                                         N = {64, 128}         K =
+                                                                                                      64
+                           2     Dense                          Invalid
+                                 Sparse
+ .kind::mxf8f6f4    No .   1     Dense    .      .e4m3,         128xNxK         N = {8, 16, … 256}    K =
+                    ws                    f32    .e5m2,                         steps of 8            32
+                                                 .e2m3,
+                                 Sparse                                                               K =
+                                                 .e3m2,
+                                                                                                      64
+                                                 .e2m1
+                           2     Dense           X              128xNxK         N = {16, 32, …        K=
+                                                 (Scale)        256xNxK         256} steps of 16      32
+                                                 .ue8m0
+                                 Sparse                         256xNxK                               K =
+                                                                                                      64
+                    .ws    1     Dense                          Invalid
+                                 Sparse
+                           2     Dense
+                                 Sparse
+ .kind::i8          No .   1     Dense    .      .s8, .u8       64xNxK          N = {8, 16, 24, 32,   K =
+                    ws                    s32                   128xNxK         48, … 256}            32
+                                                                                steps of 16 after
+                                 Sparse                                         N > 32                K =
+                                                                                                      64
+                           2     Dense                          128xNxK         N = {32, 64, …        K =
+                                                                256xNxK         256} steps of 32      32
+                                 Sparse                                                               K =
+                                                                                                      64
+                    .ws    1     Dense                          32xNxK          N = {64, 128, 256}    K =
+                                                                64xNxK                                32
+                                                                128xNxK
+                                 Sparse                                         N = {64, 128}         K =
+                                                                                                      64
+                           2     Dense                          Invalid
+                                 Sparse
+                                                                                  continues on next page
+
+
+
+9.7. Instructions                                                                          631
+PTX ISA, Release 9.2
+
+
+
+                                     Table 41 – continued from previous page
+ Various Combinations                                                    Shapes Supported
+ .kind::*              Has     CTA   Spar-       dtype atype/btype
+                       .ws     Group sity
+ .kind::mxf4           No .    1       Dense     .        .e2m1          128xNxK        N = {8, 16, … 256}   K =
+                       ws                        f32      X                             steps of 8           64
+                                                          (Scale)
+                                       Sparse                                                                K =
+                                                          .ue8m0
+                                                                                                             128
+                               2       Dense                             128xNxK        N = {16, 32, …       K =
+                                                                         256xNxK        256} steps of 16     64,
+                                                                         256xNxK1                            K1 =
+                                                                                                             96
+                                       Sparse                            256xNxK                             K =
+                                                                                                             128
+                       .ws     1/2     Either                            Invalid
+ .kind::mxf4nvf4       No .    1       Dense     .        .e2m1          128xNxK        N = {8, 16, … 256}   K =
+                       ws                        f32      X                             steps of 8           64
+                                                          (Scale)
+                                       Sparse                                                                K =
+                                                          .ue8m0,
+                                                                                                             128
+                                                          .ue4m3
+                               2       Dense                             128xNxK        N = {16, 32, …       K =
+                                                                         256xNxK        256} steps of 16     64,
+                                                                         256xNxK1                            K1 =
+                                                                                                             96
+                                       Sparse                            256xNxK                             K =
+                                                                                                             128
+                       .ws     1/2     Either                            Invalid
+
+
+
+9.7.16.2.1.1 Target ISA Note
+
+  ▶ K = 96 is only supported for following architecture-specific targets:
+        ▶ sm_103a.
+
+
+9.7.16.2.2 Specifying Matrix Shape
+
+M and N can be specified in the Instruction descriptor.
+K can be specified explicitly if there are multiple values of K supported for a given MMA variant. Oth-
+erwise, if K can be uniquely determined as per the Table 41, then K cannot be explicitly specified.
+
+
+
+
+632                                                                         Chapter 9. Instruction Set
+                                                                               PTX ISA, Release 9.2
+
+
+9.7.16.2.3 Data Movement Shape
+
+The data movement shape indicates the dimension of the data to be moved to or from the Tensor
+Memory. These shapes are described as a tuple lane x size where:
+  ▶ lane indicates the number of rows in the Tensor Memory; and
+  ▶ size indicates the amount of data, in units of bits (b), across the columns in the Tensor Memory.
+The following shapes are supported by various tcgen05 operations:
+
+
+             Shape                                                      tcgen05.<op>
+             .16x64b, .16x128b, .16x256b, .16x32bx2, .32x32b            .ld / .st
+             .4x256b, .32x128b, .64x128b, .128x256b, .128x128b          .cp
+             .31x256b (implicit)                                        .shift
+
+
+
+9.7.16.2.3.1 Memory Layout
+
+The following shows the layout of the matrix fragments across threads of the warp.
+
+
+9.7.16.2.3.2 Matrix fragments for shape .32x32b
+
+A tcgen05{.ld,.st}.32x32b instruction has the following data vector register.
+
+
+ Fragment                                                                       Elements (low to
+                                                                                high)
+ A vector expression containing .num number of .b32 registers as mentioned      r0, r1, …
+ in the Table 51.
+
+A warp executing tcgen05{.ld,.st}.32x32b will access 32 lanes of the Tensor Memory. It loads
+from or stores to each of the lane (32 * .num)-bits of data as shown in Figure 183.
+
+
+9.7.16.2.3.3 Matrix fragments for shape .16x64b
+
+A tcgen05{.ld,.st}.16x64b instruction has the following data vector register.
+
+
+ Fragment                                                                       Elements (low to
+                                                                                high)
+ A vector expression containing .num number of .b32 registers as mentioned      r0, r1, …
+ in the Table 51.
+
+A warp executing tcgen05{.ld,.st}.16x64b will access 16 lanes of the Tensor Memory. It loads
+from or stores to each of the lane (64 * .num)-bits of data as shown in Figure 184.
+
+
+
+
+9.7. Instructions                                                                                633
+PTX ISA, Release 9.2
+
+
+
+
+                       Figure 183: Matrix Fragment for shape .32x32b
+
+
+
+
+634                                                                Chapter 9. Instruction Set
+                                                                    PTX ISA, Release 9.2
+
+
+
+
+                    Figure 184: Matrix Fragment for shape .16x64b
+
+
+
+
+9.7. Instructions                                                                   635
+PTX ISA, Release 9.2
+
+
+9.7.16.2.3.4 Matrix fragments for shape .16x128b
+
+A tcgen05{.ld,.st}.16x128b instruction has the following data vector register.
+
+
+ Fragment                                                                     Elements (low to
+                                                                              high)
+ A vector expression containing .num number of .b32 registers as mentioned    r0, r1, …
+ in the Table 51.
+
+A warp executing tcgen05{.ld,.st}.16x128b will access 16 lanes of the Tensor Memory. It loads
+from or stores to each of the lane (128 * .num)-bits of data as shown in Figure 185.
+
+
+9.7.16.2.3.5 Matrix fragments for shape .16x256b
+
+A tcgen05{.ld,.st}.16x256b instruction has the following data vector register.
+
+
+ Fragment                                                                     Elements (low to
+                                                                              high)
+ A vector expression containing .num number of .b32 registers as mentioned    r0, r1, r2, r3, …
+ in the Table 51.
+
+A warp executing tcgen05{.ld,.st}.16x256b will access 16 lanes of the Tensor Memory. It loads
+from or stores to each of the lane (256 * .num)-bits of data as shown in Figure 186.
+
+
+9.7.16.2.3.6 Matrix fragments for shape .16x32bx2
+
+A tcgen05{.ld,.st}.16x32bx2 instruction has the following data vector register.
+
+
+ Fragment                                                                     Elements (low to
+                                                                              high)
+ A vector expression containing .num number of .b32 registers as mentioned    r0, r1, …
+ in the Table 51.
+
+A warp executing tcgen05{.ld,.st}.16x32bx2 will access 16 lanes of the Tensor Memory. It loads
+from or stores to each of the lane (32 * .num)-bits of data as shown in Figure 187.
+
+

@@ -1,0 +1,322 @@
+5.5.7. Swizzling Modes
+The layout of the data in the shared memory can be different to that of global memory, for access
+performance reasons. The following describes various swizzling modes:
+     ▶ No swizzle mode:
+       There is no swizzling in this mode and the destination data layout is exactly similar to the source
+       data layout.
+
+
+                                      0    1   2    3    4    5    6    7
+                                      0    1   2    3    4    5    6    7
+                                      … Pattern repeats …
+
+     ▶ 32 byte swizzle mode:
+       The following table, where each elements (numbered cell) is 16 byte and the starting address is
+       256 bytes aligned, shows the pattern of the destination data layout:
+
+
+                                      0    1   2    3    4    5    6    7
+                                      1    0   3    2    5    4    7    6
+                                      … Pattern repeats …
+
+       An example of the 32 byte swizzle mode for NC/(32B)HWC(32B) tensor of 1x2x10x10xC16 dimen-
+       sion, with the innermost dimension holding slice of 16 channels with 2 byte/channel, is shown in
+       Figure 25.
+       Figure 26 shows the two fragments of the tensor : one for C/(32B) = 0 and another for C/(32B) =
+       1.
+       Figure 27 shows the destination data layout with 32 byte swizzling.
+     ▶ 64 byte swizzle mode:
+       The following table, where each elements (numbered cell) is 16 byte and the starting address is
+       512 bytes aligned, shows the pattern of the destination data layout:
+
+
+                                      0    1   2    3    4    5    6    7
+                                      1    0   3    2    5    4    7    6
+                                      2    3   0    1    6    7    4    5
+                                      3    2   1    0    7    6    5    4
+                                      … Pattern repeats …
+
+       An example of the 64 byte swizzle mode for NHWC tensor of 1x10x10x64 dimension, with 2 bytes
+       / channel and 32 channels, is shown in Figure 28.
+       Each colored cell represents 8 channels. Figure 29 shows the source data layout.
+       Figure 30 shows the destination data layout with 64 byte swizzling.
+
+
+
+
+78                                                      Chapter 5. State Spaces, Types, and Variables
+                                                                                 PTX ISA, Release 9.2
+
+
+
+
+                             Figure 25: 32-byte swizzle mode example
+
+
+  ▶ 96 byte swizzle mode:
+    The following table where each element (numbered cell) is 16 byte shows the swizzling pattern
+    at the destination data layout:
+
+
+                                   0    1   2    3    4    5    6    7
+                                   1    0   3    2    5    4    7    6
+                                   … Pattern repeats …
+
+    An example of the data layout in global memory and its swizzled data layout in shared memory
+    where each element (colored cell) is 16 bytes and the starting address is 256 bytes aligned is
+    shown in Figure 31.
+  ▶ 128 byte swizzle mode:
+    The 128-byte swizzling mode supports the following sub-modes:
+      ▶ 16-byte atomicity sub-mode:
+         In this sub-mode, the 16-byte of data is kept intact while swizzling.
+    The following table, where each elements (numbered cell) is 16 byte and the starting address is
+    1024 bytes aligned, shows the pattern of the destination data layout:
+
+
+
+
+5.5. Tensors                                                                                      79
+PTX ISA, Release 9.2
+
+
+
+
+                       Figure 26: 32-byte swizzle mode fragments
+
+
+
+
+80                                            Chapter 5. State Spaces, Types, and Variables
+                                                                         PTX ISA, Release 9.2
+
+
+
+
+               Figure 27: 32-byte swizzle mode destination data layout
+
+
+
+
+5.5. Tensors                                                                              81
+PTX ISA, Release 9.2
+
+
+
+
+                             Figure 28: 64-byte swizzle mode example
+
+
+
+                                   0    1   2    3    4    5    6    7
+                                   1    0   3    2    5    4    7    6
+                                   2    3   0    1    6    7    4    5
+                                   3    2   1    0    7    6    5    4
+                                   4    5   6    7    0    1    2    3
+                                   5    4   7    6    1    0    3    2
+                                   6    7   4    5    2    3    0    1
+                                   7    6   5    4    3    2    1    0
+                                   … Pattern repeats …
+
+     An example of the 128 byte swizzle mode for NHWC tensor of 1x10x10x64 dimension, with 2
+     bytes / channel and 64 channels, is shown in Figure 32.
+     Each colored cell represents 8 channels. Figure 33 shows the source data layout.
+     Figure 34 shows the destination data layout with 128 byte swizzling.
+       ▶ 32-byte atomicity sub-mode:
+         In this sub-mode, the 32-byte of data is kept intact while swizzling.
+         The following table where each element (numbered cell) is 16 byte shows the swizzling pat-
+         tern at the destination data layout:
+
+
+82                                                   Chapter 5. State Spaces, Types, and Variables
+                                                                    PTX ISA, Release 9.2
+
+
+
+
+               Figure 29: 64-byte swizzle mode source data layout
+
+
+
+
+5.5. Tensors                                                                         83
+PTX ISA, Release 9.2
+
+
+
+
+                       Figure 30: 64-byte swizzle mode destination data layout
+
+
+
+
+                              Figure 31: 96-byte swizzle mode example
+
+
+
+
+84                                                   Chapter 5. State Spaces, Types, and Variables
+                                                                                 PTX ISA, Release 9.2
+
+
+
+
+                            Figure 32: 128-byte swizzle mode example
+
+
+
+                                          01     23      45     67
+                                          23     01      67     45
+                                          45     67      01     23
+                                          67     45      23     01
+                                          … Pattern repeats …
+
+         This sub-mode requires 32 byte alignment at shared memory.
+         An example of the data layout in global memory and its swizzled data layout in shared mem-
+         ory where each element (colored cell) is 16 bytes is shown in Figure 35
+      ▶ 32-byte atomicity with 8-byte flip sub-mode:
+         The swizzling pattern for this sub-mode is similar to the 32-byte atomicity sub-mode except
+         that there is a flip of adjacent 8-bytes within the 16-byte data at every alternate shared
+         memory line. Note that this mode is legal only when cp.async.bulk.tensor specifies the
+         copy direction as .shared::cluster.global or otherwise .shared::cta.global.
+         An example of the data layout in global memory and its swizzled data layout in shared mem-
+         ory where each element (colored cell) is 16 bytes (two 8-byte sub-elements for each 16-byte
+         colored cell are shown to show the flip) is shown in Figure 36
+      ▶ 64-byte atomicity sub-mode:
+         In this sub-mode, the 64-byte of data is kept intact while swizzling.
+
+
+5.5. Tensors                                                                                      85
+PTX ISA, Release 9.2
+
+
+
+
+                       Figure 33: 128-byte swizzle mode source data layout
+
+
+
+
+86                                                 Chapter 5. State Spaces, Types, and Variables
+                                                                              PTX ISA, Release 9.2
+
+
+
+
+                   Figure 34: 128-byte swizzle mode destination data layout
+
+
+
+
+               Figure 35: 128-byte swizzle mode example with 32-byte atomicity
+
+
+
+
+5.5. Tensors                                                                                   87
+PTX ISA, Release 9.2
+
+
+
+
+         Figure 36: 128-byte swizzle mode example with 32-byte atomicity with 8-byte flip
+
+
+          The following table where each element (numbered cell) is 16 byte shows the swizzling pat-
+          tern at the destination data layout:
+
+
+                                             0123        4567
+                                             4567        0123
+                                             … Pattern repeats …
+
+          This sub-mode requires 64-byte alignment at shared memory.
+          An example of the data layout in global memory and its swizzled data layout in shared mem-
+          ory where each element (colored cell) is 16 bytes is shown in Figure 37
+
+
+
+
+                 Figure 37: 128-byte swizzle mode example with 64-byte atomicity
+
+Table 14 lists the valid combination of swizzle-atomicity with the swizzling-mode.
+
+
+
+
+88                                                    Chapter 5. State Spaces, Types, and Variables
+                                                                                 PTX ISA, Release 9.2
+
+
+
+                   Table 14: Valid combination of swizzle-atomicity with swizzling-
+                   mode
+ Swizzling Mode                                     Swizzle-Atomicity
+ No Swizzling                                       –
+ 32B Swizzling Mode                                 16B
+ 64B Swizzling Mode                                 16B
+ 96B Swizzling Mode                                 16B
+ 128B Swizzling Mode
+                                                        ▶ 16B
+                                                        ▶ 32B
+                                                        ▶ 32B + 8B-flip
+                                                        ▶ 64B
+
+
+
+The value of swizzle base offset is 0 when the dstMem shared memory address is located at the fol-
+lowing boundary:
+
+
+                   Swizzling Mode     Starting address of the repeating pattern
+                   128-Byte swizzle   1024-Byte boundary
+                   96-Byte swizzle    256-Byte boundary
+                   64-Byte swizzle    512-Byte boundary
+                   32-Byte swizzle    256-Byte boundary
+
+Otherwise, the swizzle base offset is a non-zero value, computed using following formula:
+
+
+                        Swizzling Mode     Formula
+                        128-Byte swizzle   base offset = (dstMem / 128) % 8
+                        96-Byte swizzle    base offset = (dstMem / 128) % 2
+                        64-Byte swizzle    base offset = (dstMem / 128) % 4
+                        32-Byte swizzle    base offset = (dstMem / 128) % 2
+
+
+
+
+5.5.8. Tensor-map
+The tensor-map is a 128-byte opaque object either in .const space or .param (kernel function pa-
+rameter) space or .global space which describes the tensor properties and the access properties of
+the tensor data described in previous sections.
+Tensor-Map can be created using CUDA APIs. Refer to CUDA programming guide for more details.
+
+
+
+
+5.5. Tensors                                                                                      89
+PTX ISA, Release 9.2
+
+
+
+
+90                     Chapter 5. State Spaces, Types, and Variables
+                                                                                     PTX ISA, Release 9.2
+
+
+                                                                                 (continued from previous page)
+    shfl.bfly.b32 Ry, Rx, 0x10, 0x1f;             ∕∕ no predicate dest
+    add.f32        Rx, Ry, Rx;
+    shfl.bfly.b32 Ry, Rx, 0x8, 0x1f;
+    add.f32        Rx, Ry, Rx;
+    shfl.bfly.b32 Ry, Rx, 0x4, 0x1f;
+    add.f32        Rx, Ry, Rx;
+    shfl.bfly.b32 Ry, Rx, 0x2, 0x1f;
+    add.f32        Rx, Ry, Rx;
+    shfl.bfly.b32 Ry, Rx, 0x1, 0x1f;
+    add.f32        Rx, Ry, Rx;
+    ∕∕
+    ∕∕ All threads now hold sum in Rx
+
+
+

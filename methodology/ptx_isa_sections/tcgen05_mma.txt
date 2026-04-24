@@ -1,0 +1,69 @@
+9.7.16.10 TensorCore 5th Generation Matrix Multiply and accumulate Operations
+
+The 5th generation of TensorCore operations of shape MxNxK perform matrix multiplication and ac-
+cumulation of the form:
+D = A*B+D
+where:
+  ▶ the A matrix has shape MxK, in either Tensor Memory or Shared Memory
+  ▶ the B matrix has shape KxN, in Shared Memory of the current CTA and optionally in peer CTA
+  ▶ the D matrix is of the shape MxN, in Tensor Memory
+Optionally an input predicate can be used to disable the input from the accumulator matrix and the
+following operation can be performed as
+D = A*B
+
+
+
+9.7. Instructions                                                                                  677
+PTX ISA, Release 9.2
+
+
+The matrix multiplication and accumulation operations are categorized into various kinds based on
+input types and the throughput of the multiplication operation. The following shows the different
+kinds of MMA operations that are supported:
+  1. f16 : supports f16 and bf16 input types.
+  2. tf32 : supports tf32 input types.
+  3. f8f6f4 : supports all input combinations of f8, f6 and f4 types.
+  4. i8 : supports signed and unsigned 8-bit integer input types.
+  5. mxf8f6f4/mxf4 : supports mx-floating points input types.
+  6. mxf4nvf4 : supports mxf4 type and a custom NVIDIA floating-point type for inputs where the
+     type of the vector elements is 4 bits and requires a common scaling factor to form the complete
+     floating-point type, similar to other mx-types.
+Optionally, the 5th generation of TensorCore MMAs support dense and sparse matrix A. Sparse Matrices
+describes the details of the sparse matrices.
+Some of the MMA-kinds requires scaling of input matrices from memory to form the matrix A and
+matrix B before performing the MMA operation. Block Scaling for tcgen05.mma describes the details
+of the scaling of matrices.
+The following table show the various matrices involved in the MMA operations and the memory in
+which they can reside:
+
+
+                       Matrix Type           Memory
+                       A                     Tensor Memory OR Shared Memory
+                       B                     Shared Memory
+                       D                     Tensor Memory
+                       Sparse Meta Data
+                       A-Scale / B-Scale
+
+A sequence of MMA instructions may reuse the same A matrix with a sequence of B matrices or may
+reuse the same B matrix with a sequence of A matrices. In these patterns the TensorCore may be able
+to laod the unchanged matrix once and reuse it through the sequence without multiple reloads. The
+A or B matrices are loaded into a TensorCore collector buffer (i.e., special cache).
+An MMA instruction has an optional collector qualifier to specify when an A or B matrix is new to
+the sequence and should be loaded, unchanged within the sequence and should be reused, or the last
+use in the sequence and should be discarded. The collector qualifier is used to give the Tensor-
+Core permission to reuse a previously loaded A or B matrix; however reuse is opportunistic in that the
+TensorCore may reload a matrix even when it has permission to reuse that matrix. Thus, the source
+memory of an A or B matrix must not be modified while the MMA instruction using those matrices has
+not completed - regardless of collector qualifier permissions.
+The 5th generation of TensorCore MMAs can be used for general matrix multiplication OR for convo-
+lution operations. In case of convolutions, the activations can be stored in either matrix A or matrix B
+while the weights will be stored in the other matrix.
+
+
+
+
+678                                                                        Chapter 9. Instruction Set
+
+PTX ISA, Release 9.2
+================================================================================
+

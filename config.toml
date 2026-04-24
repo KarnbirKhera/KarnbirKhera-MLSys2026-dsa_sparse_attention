@@ -1,0 +1,10 @@
+[solution]
+name = "KarnbirKhera"
+definition = "dsa_sparse_attention_h16_ckv512_kpe64_topk2048_ps64"
+author = "KarnbirKhera"
+
+[build]
+language = "cuda"
+entry_point = "kernel.cu::launch_sparse_attention_c"
+binding = "torch"
+destination_passing_style = true
