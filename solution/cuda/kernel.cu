@@ -1,4 +1,12 @@
 // dsa_sparse_attention_h16_ckv512_kpe64_topk2048_ps64
+// Phase 2 Attempt 32 (Opt 3+4 bundled) — float4 lane layout for STG.E.128 scratch +
+// LDG.E.64 SMEM Kc unpack. Lane l now owns 4 contiguous fp32 per stripe (was 2 per
+// stripe in A24's interleaved float2 layout). All six load/store sites updated
+// CONSISTENTLY: Q load (qn_warp), Kc unpack in Pass 1, scratch_o STG, reduce LDG of
+// scratch_o, final bf16 output write. Expected: -3 to -7% mean wall (Opt 3 attacks
+// 25/46 of all lg_throttle samples by halving STG count; Opt 4 halves SMEM LDG count
+// on the inner-loop Kc unpack). Coupled per CLAUDE.md §10 — neither alone is
+// implementable without SHFL repack overhead that dilutes the gain.
 // Phase 2 Attempt 24 — whole-split empty-sentinel hoist on top of A23.
 //   If a CTA's slice of sparse_indices is all -1, skip the entire TMA+compute
 //   loop. Running state (row_max=-inf, row_sum=0, o_acc=0) already produces
@@ -235,18 +243,21 @@ void sparse_attention_split_kernel(
     #pragma unroll
     for (int i = 0; i < CKV_PER_LANE; ++i) o_acc[i] = 0.0f;
 
-    // Per-warp register-resident Q load — interleaved layout matching the
-    // bank-conflict-free SMEM Kc layout. Lane l owns Q elements at
-    // {2l + b + 64*j : j∈[0,8), b∈{0,1}}, packed 8 __nv_bfloat162 / lane.
+    // A32: float4-friendly lane layout. Lane l owns Q elements at
+    // {4*l + b + 128*j' : j'∈[0,4), b∈{0,1,2,3}}, packed as 4 LDG.64 (= 2 bf162) per lane.
     float qn_local[CKV_PER_LANE];
     {
         const __nv_bfloat16* qn_warp = qn_t + warp_id * HEAD_DIM_CKV;
         #pragma unroll
-        for (int j = 0; j < 8; ++j) {
-            __nv_bfloat162 v = *reinterpret_cast<const __nv_bfloat162*>(
-                qn_warp + 64 * j + 2 * lane_id);
-            qn_local[2 * j + 0] = __bfloat162float(__low2bfloat16(v));
-            qn_local[2 * j + 1] = __bfloat162float(__high2bfloat16(v));
+        for (int j = 0; j < 4; ++j) {
+            // 8 bytes per lane = 2 bf162 = 4 bf16 widened to 4 fp32.
+            int2 packed = *reinterpret_cast<const int2*>(qn_warp + 128 * j + 4 * lane_id);
+            __nv_bfloat162 v0 = *reinterpret_cast<const __nv_bfloat162*>(&packed.x);
+            __nv_bfloat162 v1 = *reinterpret_cast<const __nv_bfloat162*>(&packed.y);
+            qn_local[4 * j + 0] = __bfloat162float(__low2bfloat16(v0));
+            qn_local[4 * j + 1] = __bfloat162float(__high2bfloat16(v0));
+            qn_local[4 * j + 2] = __bfloat162float(__low2bfloat16(v1));
+            qn_local[4 * j + 3] = __bfloat162float(__high2bfloat16(v1));
         }
     }
     // Q_pe layout unchanged (per-lane stride-2 already gives 32 distinct banks via LDG.32).
@@ -306,18 +317,21 @@ void sparse_attention_split_kernel(
             phase[consume_buf] ^= 1;
             int buf = consume_buf;   // alias for the rest of the loop body
 
-            // 3) Per-lane SMEM → register unpack (interleaved layout) + compute K logits.
+            // 3) Per-lane SMEM → register unpack (A32 float4-friendly layout) + K logits.
             float kc_local[K_PER_ITER][CKV_PER_LANE];
             float logits[K_PER_ITER];
             #pragma unroll
             for (int i = 0; i < K_PER_ITER; ++i) {
                 const __nv_bfloat16* kc_row = smem_kc[buf] + i * HEAD_DIM_CKV;
                 #pragma unroll
-                for (int j = 0; j < 8; ++j) {
-                    __nv_bfloat162 v = *reinterpret_cast<const __nv_bfloat162*>(
-                        kc_row + 64 * j + 2 * lane_id);
-                    kc_local[i][2 * j + 0] = __bfloat162float(__low2bfloat16(v));
-                    kc_local[i][2 * j + 1] = __bfloat162float(__high2bfloat16(v));
+                for (int j = 0; j < 4; ++j) {
+                    int2 packed = *reinterpret_cast<const int2*>(kc_row + 128 * j + 4 * lane_id);
+                    __nv_bfloat162 v0 = *reinterpret_cast<const __nv_bfloat162*>(&packed.x);
+                    __nv_bfloat162 v1 = *reinterpret_cast<const __nv_bfloat162*>(&packed.y);
+                    kc_local[i][4 * j + 0] = __bfloat162float(__low2bfloat16(v0));
+                    kc_local[i][4 * j + 1] = __bfloat162float(__high2bfloat16(v0));
+                    kc_local[i][4 * j + 2] = __bfloat162float(__low2bfloat16(v1));
+                    kc_local[i][4 * j + 3] = __bfloat162float(__high2bfloat16(v1));
                 }
                 const __nv_bfloat16* kp_lane =
                     smem_kp[buf] + i * HEAD_DIM_KPE + lane_id * KPE_PER_LANE;
@@ -374,15 +388,19 @@ void sparse_attention_split_kernel(
         }
     }
 
-    // Write partials to scratch using INTERLEAVED layout (matches o_acc lane allocation:
-    // lane l owns o_acc[2j+b] for output position 64*j + 2*lane + b). 8 STG.64 per warp.
+    // A32: 4 STG.E.128 per warp via float4. Lane l owns o_acc[4*j+b] for output
+    // position 128*j + 4*lane + b. Halves STG instruction count vs A24.
     float* scratch_warp = scratch_o
         + ((int64_t)t * splits_per_token + s) * NUM_QO_HEADS * HEAD_DIM_CKV
         + warp_id * HEAD_DIM_CKV;
     #pragma unroll
-    for (int j = 0; j < 8; ++j) {
-        float2 v = {o_acc[2 * j + 0], o_acc[2 * j + 1]};
-        *reinterpret_cast<float2*>(scratch_warp + 64 * j + 2 * lane_id) = v;
+    for (int j = 0; j < 4; ++j) {
+        float4 v;
+        v.x = o_acc[4 * j + 0];
+        v.y = o_acc[4 * j + 1];
+        v.z = o_acc[4 * j + 2];
+        v.w = o_acc[4 * j + 3];
+        *reinterpret_cast<float4*>(scratch_warp + 128 * j + 4 * lane_id) = v;
     }
 
     if (lane_id == 0) {
@@ -457,10 +475,12 @@ void sparse_attention_split_kernel(
             + warp_id * HEAD_DIM_CKV;
         float o_partial[CKV_PER_LANE];
         #pragma unroll
-        for (int j = 0; j < 8; ++j) {
-            float2 v = *reinterpret_cast<const float2*>(sw + 64 * j + 2 * lane_id);
-            o_partial[2 * j + 0] = v.x;
-            o_partial[2 * j + 1] = v.y;
+        for (int j = 0; j < 4; ++j) {
+            float4 v = *reinterpret_cast<const float4*>(sw + 128 * j + 4 * lane_id);
+            o_partial[4 * j + 0] = v.x;
+            o_partial[4 * j + 1] = v.y;
+            o_partial[4 * j + 2] = v.z;
+            o_partial[4 * j + 3] = v.w;
         }
         #pragma unroll
         for (int i = 0; i < CKV_PER_LANE; ++i) {
@@ -468,15 +488,20 @@ void sparse_attention_split_kernel(
         }
     }
 
-    // Final write: bf16 packed STG.32 in interleaved layout.
+    // A32: final bf16 write — 4 int2 (= 2 bf162 packed) STGs per warp at the
+    // matching float4-friendly layout.
     __nv_bfloat16* out_warp = output + t * NUM_QO_HEADS * HEAD_DIM_CKV
                             + warp_id * HEAD_DIM_CKV;
     #pragma unroll
-    for (int j = 0; j < 8; ++j) {
-        __nv_bfloat162 packed = __floats2bfloat162_rn(
-            o_acc2[2 * j + 0] * inv_l,
-            o_acc2[2 * j + 1] * inv_l);
-        *reinterpret_cast<__nv_bfloat162*>(out_warp + 64 * j + 2 * lane_id) = packed;
+    for (int j = 0; j < 4; ++j) {
+        __nv_bfloat162 p0 = __floats2bfloat162_rn(
+            o_acc2[4 * j + 0] * inv_l, o_acc2[4 * j + 1] * inv_l);
+        __nv_bfloat162 p1 = __floats2bfloat162_rn(
+            o_acc2[4 * j + 2] * inv_l, o_acc2[4 * j + 3] * inv_l);
+        int2 packed;
+        packed.x = *reinterpret_cast<const int*>(&p0);
+        packed.y = *reinterpret_cast<const int*>(&p1);
+        *reinterpret_cast<int2*>(out_warp + 128 * j + 4 * lane_id) = packed;
     }
     if (lane_id == 0) {
         float lse_val = empty ? -INFINITY : (m_global * LOG2_E + log2f(l_global));
